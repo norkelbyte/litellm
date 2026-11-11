@@ -46,6 +46,20 @@ _ALWAYS_KEYED_PROVIDER_PARAMS: Final = frozenset({"continuation_token"})
 _DECODED_LITERAL: Final = TypeAdapter(object)
 
 
+def _extra_body_cache_material(kwargs: Mapping[str, object]) -> str:
+    raw_extra_body: Final = kwargs.get("extra_body")
+    if not isinstance(raw_extra_body, dict):
+        return ""
+    extra_body: Final = cast(  # cast-ok: isinstance leaves the key and value types unknown
+        Mapping[str, object], raw_extra_body
+    )
+    return "".join(
+        f"extra_body.{field}: {extra_body[field]}"
+        for field in sorted(extra_body, key=str)
+        if extra_body[field] or field not in _ALWAYS_KEYED_PROVIDER_PARAMS
+    )
+
+
 @contextmanager
 def response_cache_phase(operation: Literal["get", "set"]) -> Generator[None]:
     """The ``cache.get llm_response`` / ``cache.set llm_response`` span a response-cache read or write runs
@@ -419,7 +433,9 @@ class Cache:
         reasoning_summary_material: Final = (
             "" if reasoning_summary is None else f"reasoning_summary: {reasoning_summary}"
         )
-        hashed_cache_key = Cache._get_hashed_cache_key(cache_key + reasoning_summary_material)
+        hashed_cache_key = Cache._get_hashed_cache_key(
+            cache_key + _extra_body_cache_material(kwargs) + reasoning_summary_material
+        )
         hashed_cache_key = self._add_namespace_to_cache_key(hashed_cache_key, **kwargs)
         verbose_logger.debug(
             "\nCreated cache key: %s (source material length: %d)",
