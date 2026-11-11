@@ -4262,6 +4262,8 @@ def _complete_bedrock(ctx: CompletionDispatchContext) -> _CompletionDispatchResu
     elif bedrock_route == "converse":
         model = without_bedrock_route_prefix(model)
         converse_model: Final = model
+        extra_body_drops: Final = frozenset(additional_drop_params or ())
+        converse_params: Final = _OPTIONAL_PARAMS_ADAPTER.validate_python(optional_params)
 
         def converse_attempt(fallback: NativeOutputFallback | None) -> NativeOutputAttemptResult:
             return bedrock_converse_chat_completion.completion(
@@ -4269,7 +4271,9 @@ def _complete_bedrock(ctx: CompletionDispatchContext) -> _CompletionDispatchResu
                 messages=messages,
                 custom_prompt_dict=custom_prompt_dict,
                 model_response=model_response,
-                optional_params=optional_params if fallback is None else dict(fallback.optional_params),
+                optional_params=AmazonConverseConfig.without_extra_body_fields(
+                    converse_params if fallback is None else fallback.optional_params, extra_body_drops
+                ),
                 litellm_params=litellm_params if fallback is None else dict(fallback.litellm_params),
                 logger_fn=logger_fn,
                 encoding=_get_encoding(),
@@ -4282,7 +4286,6 @@ def _complete_bedrock(ctx: CompletionDispatchContext) -> _CompletionDispatchResu
                 api_key=api_key,
             )
 
-        converse_params: Final = _OPTIONAL_PARAMS_ADAPTER.validate_python(optional_params)
         response = call_with_native_output_fallback(
             converse_attempt,
             (
