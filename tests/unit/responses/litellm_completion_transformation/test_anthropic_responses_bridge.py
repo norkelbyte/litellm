@@ -2310,7 +2310,7 @@ def test_responses_over_anthropic_report_a_paused_turn_as_completed_with_its_pen
 
     assert _status_and_incomplete_details(response) == (expected_status, expected_incomplete_details)
     assert _search_calls(response.output) == _EXPECTED_PAUSED_OUTPUT
-    assert _reasoning_and_message_statuses(response.output) == ([expected_status], [expected_status])
+    assert _reasoning_and_message_statuses(response.output) == (["completed"], ["completed"])
     assert _last_item(response.output) == ("web_search_call", "in_progress")
 
 
@@ -2401,13 +2401,13 @@ def test_streamed_responses_over_anthropic_complete_a_paused_turn_with_its_pendi
     assert finished.type == f"response.{expected_status}"
     assert _status_and_incomplete_details(finished.response) == (expected_status, expected_incomplete_details)
     assert _search_calls(finished.response.output) == _EXPECTED_PAUSED_OUTPUT
-    assert _reasoning_and_message_statuses(finished.response.output) == ([expected_status], [expected_status])
+    assert _reasoning_and_message_statuses(finished.response.output) == (["completed"], ["completed"])
     assert _last_item(finished.response.output) == ("web_search_call", "in_progress")
     assert [
         getattr(event.item, "status", None)
         for event in events
         if isinstance(event, OutputItemDoneEvent) and getattr(event.item, "type", None) == "message"
-    ] == [expected_status]
+    ] == ["completed"]
 
 
 async def _codex_follow_up_body(**kwargs: object) -> Mapping[str, object]:

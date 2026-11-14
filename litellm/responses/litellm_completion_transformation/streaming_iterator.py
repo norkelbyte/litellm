@@ -34,6 +34,7 @@ from litellm.responses.litellm_completion_transformation.tool_search_results imp
 )
 from litellm.responses.litellm_completion_transformation.transformation import (
     LiteLLMCompletionResponsesConfig,
+    ToolCallRef,
 )
 from litellm.responses.streaming_iterator import (
     SEQUENCE_NUMBER_STAMPED_ON_EMISSION,
@@ -655,7 +656,14 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
             )
             self._pending_tool_events.append(done_event)
 
-            item_kwargs = self._tool_call_item_kwargs(call_id, fn_name, final_args, "completed")
+            item_kwargs = self._tool_call_item_kwargs(
+                call_id,
+                fn_name,
+                final_args,
+                LiteLLMCompletionResponsesConfig.responses_item_status(
+                    litellm_complete_object.choices[0], ToolCallRef(call_id)
+                ),
+            )
             item_kwargs["id"] = self._tool_item_id_by_call_id.setdefault(call_id, item_kwargs["id"])
             item_done_event = OutputItemDoneEvent(
                 type=ResponsesAPIStreamEvents.OUTPUT_ITEM_DONE,
@@ -1107,8 +1115,8 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
             item=BaseLiteLLMOpenAIResponseObject(
                 **{
                     "id": self._cached_item_id,
-                    "status": LiteLLMCompletionResponsesConfig.responses_status_for_choice(
-                        litellm_complete_object.choices[0]
+                    "status": LiteLLMCompletionResponsesConfig.responses_item_status(
+                        litellm_complete_object.choices[0], "message"
                     ),
                     "type": "message",
                     "role": "assistant",

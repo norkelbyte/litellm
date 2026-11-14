@@ -2346,27 +2346,83 @@ def test_the_partial_response_billed_on_disconnect_carries_the_logging_objects_b
     ), "the bill is priced on the partial's own usage"
 
 
+def _second_tool_call_chunk(arguments: str, finish_reason: str | None = None) -> ModelResponseStream:
+    return ModelResponseStream(
+        id=CHAT_COMPLETION_ID,
+        created=1748575031,
+        model="claude-haiku-5-5",
+        object="chat.completion.chunk",
+        choices=[
+            StreamingChoices(
+                index=0,
+                delta=Delta(
+                    content=None,
+                    tool_calls=[
+                        {
+                            "id": "call_ls",
+                            "type": "function",
+                            "function": {"name": "run_command", "arguments": arguments},
+                            "index": 1,
+                        }
+                    ],
+                ),
+                finish_reason=finish_reason,
+            )
+        ],
+    )
+
+
 @pytest.mark.parametrize(
-    ("finish_reason", "status"),
-    [("length", "incomplete"), ("content_filter", "incomplete"), ("stop", "completed")],
+    ("stream", "expected_statuses"),
+    [
+        (lambda: (_chunk("Hello"), _chunk(" wor", finish_reason="length")), (("message", "incomplete"),)),
+        (lambda: (_chunk("Hello"), _chunk(" wor", finish_reason="content_filter")), (("message", "incomplete"),)),
+        (lambda: (_chunk("Hello"), _chunk(" world", finish_reason="stop")), (("message", "completed"),)),
+        (
+            lambda: (
+                _text_opening_a_tool_call_chunk("Writing the file. "),
+                _tool_arguments_chunk('{"city": "Par', finish_reason="length"),
+            ),
+            (("message", "completed"), ("function_call", "incomplete")),
+        ),
+        (lambda: (_tool_call_chunk(), _chunk("", finish_reason="length")), (("function_call", "incomplete"),)),
+        (
+            lambda: (_tool_call_chunk(), _second_tool_call_chunk('{"command": "l', finish_reason="length")),
+            (("function_call", "completed"), ("function_call", "incomplete")),
+        ),
+        (
+            lambda: (_reasoning_chunk("let me think"), _chunk("Hel", finish_reason="length")),
+            (("reasoning", "completed"), ("message", "incomplete")),
+        ),
+        (lambda: (_reasoning_chunk("let me th", finish_reason="length"),), (("reasoning", "incomplete"),)),
+    ],
+    ids=[
+        "text_cut",
+        "text_filtered",
+        "text_finished",
+        "text_then_cut_tool_call",
+        "cut_tool_call",
+        "second_tool_call_cut",
+        "reasoning_then_cut_text",
+        "cut_reasoning",
+    ],
 )
 @pytest.mark.parametrize("sync_mode", [True, False])
 @pytest.mark.asyncio
-async def test_streamed_message_item_done_status_agrees_with_the_terminal_response(
-    finish_reason: str, status: str, sync_mode: bool
+async def test_only_the_item_a_streamed_response_was_cut_on_says_incomplete_in_both_events(
+    stream: StreamChunks, expected_statuses: tuple[tuple[str, str], ...], sync_mode: bool
 ) -> None:
-    iterator: Final = _build_iterator([_chunk("Hello"), _chunk(" wor", finish_reason=finish_reason)])
+    events: Final = await _collect_events(_build_iterator(stream()), sync_mode)
 
-    events: Final = await _collect_events(iterator, sync_mode)
-
-    message_item_done: Final = next(
-        event
+    terminal_statuses: Final = tuple((item.type, item.status) for item in events[-1].response.output)
+    done_statuses: Final = sorted(
+        (event.item.type, event.item.status)
         for event in events
-        if getattr(event, "type", None) == ResponsesAPIStreamEvents.OUTPUT_ITEM_DONE and _is_message_item(event)
+        if getattr(event, "type", None) == ResponsesAPIStreamEvents.OUTPUT_ITEM_DONE
+        and getattr(event.item, "status", None) is not None
     )
-    terminal_message_statuses: Final = [item.status for item in events[-1].response.output if item.type == "message"]
-    assert terminal_message_statuses == [status]
-    assert message_item_done.item.status == status
+    assert terminal_statuses == expected_statuses
+    assert done_statuses == sorted(pair for pair in expected_statuses if pair[0] != "reasoning")
 
 
 def _serialized_sequence_numbers(events: Iterable[BaseLiteLLMOpenAIResponseObject]) -> list[int]:
