@@ -2425,6 +2425,62 @@ async def test_only_the_item_a_streamed_response_was_cut_on_says_incomplete_in_b
     assert done_statuses == sorted(pair for pair in expected_statuses if pair[0] != "reasoning")
 
 
+def _apply_patch_call_chunk(arguments: str) -> ModelResponseStream:
+    return ModelResponseStream(
+        id=CHAT_COMPLETION_ID,
+        created=1748575031,
+        model="claude-haiku-5-5",
+        object="chat.completion.chunk",
+        choices=[
+            StreamingChoices(
+                index=0,
+                delta=Delta(
+                    content=None,
+                    tool_calls=[
+                        {
+                            "id": "call_patch",
+                            "type": "function",
+                            "function": {"name": "apply_patch", "arguments": arguments},
+                            "index": 0,
+                        }
+                    ],
+                ),
+                finish_reason=None,
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize("sync_mode", [True, False])
+@pytest.mark.asyncio
+async def test_a_cut_custom_tool_call_keeps_its_partial_input_in_the_done_event(sync_mode: bool) -> None:
+    iterator: Final = LiteLLMCompletionStreamingIterator(
+        model="claude-haiku-5-5",
+        litellm_custom_stream_wrapper=_FakeStreamWrapper(
+            [
+                _apply_patch_call_chunk('{"content": "*** Begin Patch\\n'),
+                _tool_arguments_chunk("*** Add File: a.py", finish_reason="length"),
+            ]
+        ),
+        request_input="Add a.py",
+        responses_api_request={"tools": [{"type": "custom", "name": "apply_patch"}]},
+        custom_llm_provider="anthropic",
+        litellm_metadata={},
+    )
+
+    events: Final = await _collect_events(iterator, sync_mode)
+
+    done_items: Final = tuple(
+        (event.item.type, event.item.status, event.item.input)
+        for event in events
+        if getattr(event, "type", None) == ResponsesAPIStreamEvents.OUTPUT_ITEM_DONE
+    )
+    final_items: Final = tuple((item.type, item.status, item.input) for item in events[-1].response.output)
+    assert done_items == final_items
+    assert [(item_type, status) for item_type, status, _ in done_items] == [("custom_tool_call", "incomplete")]
+    assert "*** Add File: a.py" in done_items[0][2]
+
+
 def _serialized_sequence_numbers(events: Iterable[BaseLiteLLMOpenAIResponseObject]) -> list[int]:
     payloads: Final = tuple(json.loads(event.model_dump_json()) for event in events)
     assert all("sequence_number" in payload for payload in payloads), [
