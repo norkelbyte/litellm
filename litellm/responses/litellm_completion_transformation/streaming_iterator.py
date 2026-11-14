@@ -32,10 +32,7 @@ from litellm.responses.litellm_completion_transformation.tool_search_results imp
     build_tool_search_output,
     tool_search_results_by_call_id,
 )
-from litellm.responses.litellm_completion_transformation.transformation import (
-    LiteLLMCompletionResponsesConfig,
-    ToolCallRef,
-)
+from litellm.responses.litellm_completion_transformation.transformation import LiteLLMCompletionResponsesConfig
 from litellm.responses.streaming_iterator import (
     SEQUENCE_NUMBER_STAMPED_ON_EMISSION,
     ResponsesAPIStreamingIterator,
@@ -660,8 +657,8 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
                 call_id,
                 fn_name,
                 final_args,
-                LiteLLMCompletionResponsesConfig.responses_item_status(
-                    litellm_complete_object.choices[0], ToolCallRef(call_id)
+                LiteLLMCompletionResponsesConfig.tool_call_status(
+                    litellm_complete_object.choices[0], call_id, final_args, streamed=True
                 ),
             )
             item_kwargs["id"] = self._tool_item_id_by_call_id.setdefault(call_id, item_kwargs["id"])
@@ -1662,6 +1659,7 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
                 request_input=self.request_input,
                 chat_completion_response=built,
                 responses_api_request=self.responses_api_request,
+                streamed=True,
             )
         )
         partial: Final = self._with_encoded_response_id(
@@ -1686,6 +1684,7 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
                     request_input=self.request_input,
                     chat_completion_response=litellm_model_response,
                     responses_api_request=self.responses_api_request,
+                    streamed=True,
                 )
             )
 

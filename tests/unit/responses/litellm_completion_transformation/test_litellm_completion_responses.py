@@ -6421,6 +6421,22 @@ def test_transform_chat_completion_response_null_finish_reason_is_incomplete():
         ),
         pytest.param(
             Message(
+                content=None,
+                role="assistant",
+                tool_calls=[
+                    ChatCompletionMessageToolCall(
+                        id="call_write",
+                        type="function",
+                        function=Function(name="write_file", arguments='{"path": "numbers.txt"}'),
+                    )
+                ],
+            ),
+            "length",
+            (("function_call", "incomplete"),),
+            id="cut_tool_call_with_parsed_partial_input",
+        ),
+        pytest.param(
+            Message(
                 content="",
                 role="assistant",
                 reasoning_content="The user wants the system prompt.",

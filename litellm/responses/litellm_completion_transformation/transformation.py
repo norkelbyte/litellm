@@ -302,6 +302,13 @@ _STR_KEY_DICT_ADAPTER: Final = TypeAdapter(dict[str, object])
 _OBJECT_LIST_ADAPTER: Final = TypeAdapter(list[object])
 
 
+def _streamed_arguments_finished(arguments: str) -> bool:
+    try:
+        return bool(_STR_KEY_DICT_ADAPTER.validate_json(arguments))
+    except ValidationError:
+        return False
+
+
 _CONTENT_TYPE_ADAPTER: Final[TypeAdapter[ValidChatCompletionMessageContentTypesLiteral]] = TypeAdapter(
     ValidChatCompletionMessageContentTypesLiteral
 )
@@ -3273,6 +3280,7 @@ class LiteLLMCompletionResponsesConfig:
     def transform_chat_completion_tools_to_responses_tools(
         chat_completion_response: ModelResponse,
         responses_api_request: ResponsesAPIOptionalRequestParams | None = None,
+        streamed: bool = False,
     ) -> list[
         ResponseFunctionToolCall
         | ResponseFunctionWebSearch
@@ -3335,7 +3343,9 @@ class LiteLLMCompletionResponsesConfig:
                         name=tool_name,
                         input=input_str,
                         status=function_definition.get("status")
-                        or LiteLLMCompletionResponsesConfig._tool_call_status(first_choice, tool_id),
+                        or LiteLLMCompletionResponsesConfig.tool_call_status(
+                            first_choice, tool_id, tool_arguments, streamed=streamed
+                        ),
                     )
                     responses_tools.append(custom_item)
                 else:
@@ -3366,7 +3376,9 @@ class LiteLLMCompletionResponsesConfig:
                         id=openai_shaped_tool_call_item_id("function_call", tool_id),
                         type="function_call",
                         status=function_definition.get("status")
-                        or LiteLLMCompletionResponsesConfig._tool_call_status(first_choice, tool_id),
+                        or LiteLLMCompletionResponsesConfig.tool_call_status(
+                            first_choice, tool_id, tool_arguments, streamed=streamed
+                        ),
                     )
                     if namespace:
                         output_tool_call.namespace = namespace
@@ -3407,10 +3419,15 @@ class LiteLLMCompletionResponsesConfig:
         return build_tool_search_call(tool_id, tool_arguments, "completed", execution)
 
     @staticmethod
-    def _tool_call_status(choice: Choices | None, tool_id: str) -> Literal["completed", "incomplete"]:
+    def tool_call_status(
+        choice: Choices | None, tool_id: str, arguments: str, *, streamed: bool
+    ) -> Literal["completed", "incomplete"]:
         if choice is None:
             return "completed"
-        return LiteLLMCompletionResponsesConfig.responses_item_status(choice, ToolCallRef(tool_id))
+        status: Final = LiteLLMCompletionResponsesConfig.responses_item_status(choice, ToolCallRef(tool_id))
+        if status == "incomplete" and streamed and _streamed_arguments_finished(arguments):
+            return "completed"
+        return status
 
     @staticmethod
     def _web_search_calls_by_call_id(
@@ -3634,6 +3651,7 @@ class LiteLLMCompletionResponsesConfig:
         request_input: str | ResponseInputParam,
         responses_api_request: ResponsesAPIOptionalRequestParams,
         chat_completion_response: ModelResponse | dict,
+        streamed: bool = False,
     ) -> ResponsesAPIResponse:
         """
         Transform a Chat Completion response into a Responses API response
@@ -3670,6 +3688,7 @@ class LiteLLMCompletionResponsesConfig:
                 chat_completion_response=chat_completion_response,
                 choices=getattr(chat_completion_response, "choices", []),
                 responses_api_request=responses_api_request,
+                streamed=streamed,
             ),
             parallel_tool_calls=echoed.get("parallel_tool_calls", False),
             temperature=echoed.get("temperature"),
@@ -3713,6 +3732,7 @@ class LiteLLMCompletionResponsesConfig:
         chat_completion_response: ModelResponse,
         choices: list[Choices],
         responses_api_request: ResponsesAPIOptionalRequestParams | None = None,
+        streamed: bool = False,
     ) -> list[
         GenericResponseOutputItem
         | OutputCodeInterpreterCall
@@ -3749,6 +3769,7 @@ class LiteLLMCompletionResponsesConfig:
             LiteLLMCompletionResponsesConfig.transform_chat_completion_tools_to_responses_tools(
                 chat_completion_response=chat_completion_response,
                 responses_api_request=responses_api_request,
+                streamed=streamed,
             )
         )
 

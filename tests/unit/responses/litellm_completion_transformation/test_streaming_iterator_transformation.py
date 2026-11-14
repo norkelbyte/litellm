@@ -2385,7 +2385,14 @@ def _second_tool_call_chunk(arguments: str, finish_reason: str | None = None) ->
             ),
             (("message", "completed"), ("function_call", "incomplete")),
         ),
-        (lambda: (_tool_call_chunk(), _chunk("", finish_reason="length")), (("function_call", "incomplete"),)),
+        (
+            lambda: (_tool_call_chunk(), _second_tool_call_chunk('{"command": "ls"}', finish_reason="length")),
+            (("function_call", "completed"), ("function_call", "completed")),
+        ),
+        (
+            lambda: (_tool_call_chunk(), _second_tool_call_chunk("{}", finish_reason="length")),
+            (("function_call", "completed"), ("function_call", "incomplete")),
+        ),
         (
             lambda: (_tool_call_chunk(), _second_tool_call_chunk('{"command": "l', finish_reason="length")),
             (("function_call", "completed"), ("function_call", "incomplete")),
@@ -2401,7 +2408,8 @@ def _second_tool_call_chunk(arguments: str, finish_reason: str | None = None) ->
         "text_filtered",
         "text_finished",
         "text_then_cut_tool_call",
-        "cut_tool_call",
+        "cut_after_whole_tool_calls",
+        "cut_before_any_argument",
         "second_tool_call_cut",
         "reasoning_then_cut_text",
         "cut_reasoning",
@@ -2478,7 +2486,7 @@ async def test_a_cut_custom_tool_call_keeps_its_partial_input_in_the_done_event(
     final_items: Final = tuple((item.type, item.status, item.input) for item in events[-1].response.output)
     assert done_items == final_items
     assert [(item_type, status) for item_type, status, _ in done_items] == [("custom_tool_call", "incomplete")]
-    assert "*** Add File: a.py" in done_items[0][2]
+    assert done_items[0][2] == '{"content": "*** Begin Patch\\n*** Add File: a.py'
 
 
 def _serialized_sequence_numbers(events: Iterable[BaseLiteLLMOpenAIResponseObject]) -> list[int]:
