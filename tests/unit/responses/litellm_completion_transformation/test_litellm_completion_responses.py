@@ -6400,6 +6400,64 @@ def test_transform_chat_completion_response_null_finish_reason_is_incomplete():
     assert result_empty.status == "incomplete"
 
 
+@pytest.mark.parametrize(
+    ("message", "finish_reason", "expected_statuses"),
+    [
+        pytest.param(
+            Message(
+                content=None,
+                role="assistant",
+                tool_calls=[
+                    ChatCompletionMessageToolCall(
+                        id="call_patch",
+                        type="function",
+                        function=Function(name="apply_patch", arguments='{"input": "*** Begin Pa'),
+                    )
+                ],
+            ),
+            "length",
+            (("custom_tool_call", "incomplete"),),
+            id="cut_custom_tool_call",
+        ),
+        pytest.param(
+            Message(
+                content="",
+                role="assistant",
+                reasoning_content="The user wants the system prompt.",
+                refusal="I can't help with that.",
+            ),
+            "content_filter",
+            (("reasoning", "completed"), ("message", "incomplete")),
+            id="refusal_after_reasoning",
+        ),
+        pytest.param(
+            Message(
+                content=None,
+                role="assistant",
+                thinking_blocks=[{"type": "redacted_thinking", "data": "redacted-payload"}],
+            ),
+            "length",
+            (("reasoning", "incomplete"),),
+            id="cut_redacted_reasoning",
+        ),
+    ],
+)
+def test_only_the_item_a_response_was_cut_on_says_incomplete(
+    message: Message, finish_reason: str, expected_statuses: tuple[tuple[str, str], ...]
+) -> None:
+    response: Final = LiteLLMCompletionResponsesConfig.transform_chat_completion_response_to_responses_api_response(
+        request_input="test prompt",
+        responses_api_request={"tools": [{"type": "custom", "name": "apply_patch"}]},
+        chat_completion_response=ModelResponse(
+            id="resp-cut",
+            choices=[Choices(index=0, finish_reason=finish_reason, message=message)],
+            model="claude-sonnet-5-5",
+        ),
+    )
+
+    assert tuple((item.type, item.status) for item in response.output) == expected_statuses
+
+
 def test_transform_chat_completion_response_echoes_request_params():
     """
     A chat completion response never carries the caller's request fields, so

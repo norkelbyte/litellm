@@ -3494,17 +3494,9 @@ class LiteLLMCompletionResponsesConfig:
         web_search_calls: Final = LiteLLMCompletionResponsesConfig._web_search_calls_of_choice(choice)
         if any(call.status == "in_progress" for call in web_search_calls):
             return None
-        server_call_ids: Final = frozenset(
-            (
-                *(call.id.removeprefix("ws_") for call in web_search_calls),
-                *(call.id for call in anthropic_server_tool_calls(message)),
-            )
-        )
-        client_call_ids: Final = tuple(
-            tool_call.id for tool_call in message.tool_calls or () if tool_call.id not in server_call_ids
-        )
-        if client_call_ids:
-            return ToolCallRef(client_call_ids[-1])
+        tool_calls: Final = message.tool_calls or ()
+        if tool_calls:
+            return ToolCallRef(tool_calls[-1].id)
         if message.content or openai_chat_refusal_text(message) is not None:
             return "message"
         has_reasoning: Final = bool(getattr(message, "reasoning_content", None)) or bool(
