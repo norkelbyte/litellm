@@ -83,6 +83,7 @@ from litellm.proxy._types import (
     SpendLogsRouterMetadata,
 )
 from litellm.proxy.route_llm_request import ProxyModelNotFoundError
+from litellm.proxy.spend_tracking.spend_event import bills_usage_beyond_its_response
 from litellm.proxy.spend_tracking.spend_log_error_logger import spend_log_error
 from litellm.proxy.utils import PrismaClient, hash_token, query_raw_within_statement_timeout
 from litellm.responses.litellm_completion_transformation.compaction_items import (
@@ -747,9 +748,8 @@ def get_logging_payload(
     # continued on a fallback or a success that bills a failed follow-up only has its own.
     # combined_usage_object holds the usage of every call the row bills, so it wins in each case.
     _combined_usage: Final = kwargs.get("combined_usage_object")
-    if (
-        not usage or "continued_partial_usage" in kwargs or "failed_attempts_billed_on_success" in kwargs
-    ) and isinstance(_combined_usage, litellm.Usage):
+    call_details: Final = cast(Mapping[str, object], kwargs)  # cast-ok: kwargs is the str-keyed model_call_details
+    if (not usage or bills_usage_beyond_its_response(call_details)) and isinstance(_combined_usage, litellm.Usage):
         usage = _combined_usage.model_dump()
 
     id = get_spend_logs_id(call_type or "acompletion", response_obj_dict, kwargs, metadata)

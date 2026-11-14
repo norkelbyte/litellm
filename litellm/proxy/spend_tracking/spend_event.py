@@ -211,18 +211,24 @@ class SpendEventDecodeError:
     reason: str
 
 
+def bills_usage_beyond_its_response(kwargs: ObjectMapping) -> bool:
+    return "continued_partial_usage" in kwargs or "failed_attempts_billed_on_success" in kwargs
+
+
 def is_offloadable_success(response_obj: object, kwargs: ObjectMapping) -> bool:
     """A success stays in-process when its cost logic reads something the spend event leaves out.
 
     Batches and interaction polls need the concrete response class. A batch retrieve needs the polled batch id,
     which message redaction can hide. A video status poll needs the status and the video id. A background
-    response's settling read needs the settlement flag."""
+    response's settling read needs the settlement flag. A success that also bills a cut stream or failed
+    attempts needs the markers that make its row take the combined usage."""
     call_type: Final = kwargs.get("call_type")
     return (
         not isinstance(response_obj, _NOT_OFFLOADED_RESPONSE_TYPES)
         and not is_batch_retrieve_call_type(call_type)
         and not is_video_status_call_type(call_type)
         and kwargs.get(SETTLES_BACKGROUND_RESPONSE_KWARG) is not BackgroundResponseSettlement.SETTLES
+        and not bills_usage_beyond_its_response(kwargs)
     )
 
 

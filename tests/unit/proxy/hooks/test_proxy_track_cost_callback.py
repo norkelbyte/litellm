@@ -3911,6 +3911,57 @@ async def test_sidecar_writes_the_same_spend_row_and_counters_as_the_in_process_
     assert sidecar_tools == in_process_tools == ("get_weather",)
 
 
+def _row_tokens(row: SpendLogsPayload) -> tuple[object, object, object]:
+    return row["prompt_tokens"], row["completion_tokens"], row["total_tokens"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "earlier_calls_billed",
+    [
+        {
+            "continued_partial_usage": Usage(prompt_tokens=40, completion_tokens=7, total_tokens=47),
+            "continued_partial_cost": 0.001,
+        },
+        {"failed_attempts_billed_on_success": ((Usage(prompt_tokens=40, completion_tokens=7, total_tokens=47), 0.001),)},
+    ],
+    ids=["continued_partial", "failed_attempts_billed_on_success"],
+)
+async def test_the_collector_writes_the_same_tokens_as_the_in_process_path_for_a_success_billing_earlier_calls(
+    earlier_calls_billed: Mapping[str, object],
+):
+    start_time: Final = datetime(2026, 1, 1, 0, 0, 0)
+    end_time: Final = datetime(2026, 1, 1, 0, 0, 2)
+
+    def success_kwargs() -> dict[str, object]:
+        return {
+            **_offload_kwargs(),
+            **earlier_calls_billed,
+            "combined_usage_object": Usage(prompt_tokens=5040, completion_tokens=4007, total_tokens=9047),
+        }
+
+    async def in_process() -> None:
+        await ProxyDBLogger().async_log_success_event(success_kwargs(), _offload_response(), start_time, end_time)
+
+    async def collector_on() -> None:
+        producer: Final = SpendEventProducer(
+            address=UnixAddress(path="/nonexistent/spend.sock"),
+            on_unavailable="fallback",
+            buffer_size=10,
+            connect_timeout=1.0,
+            fallback=run_spend_event,
+        )
+        await ProxyDBLogger(producer).async_log_success_event(
+            success_kwargs(), _offload_response(), start_time, end_time
+        )
+        await producer.close(drain_timeout=5.0)
+
+    in_process_row, _, _ = await _spend_row_written_by(in_process)
+    collector_row, _, _ = await _spend_row_written_by(collector_on)
+
+    assert _row_tokens(collector_row) == _row_tokens(in_process_row) == (5040, 4007, 9047)
+
+
 @pytest.mark.asyncio
 async def test_sidecar_ignores_an_undecodable_event():  # test-quality-ok: a discarded event has no observable output other than the DB writer never being reached
     with (

@@ -1580,6 +1580,24 @@ def _combine_responses_fallback_usage(fallback_item: object, partial_usage: "Res
     )
 
 
+def _carries_continued_partial(fallback_response: object) -> bool:
+    from litellm.litellm_core_utils.litellm_logging import Logging as LiteLLMLogging
+
+    fallback_logging: Final = getattr(fallback_response, "logging_obj", None)
+    return isinstance(fallback_logging, LiteLLMLogging) and isinstance(
+        fallback_logging.model_call_details.get("continued_partial_usage"), Usage
+    )
+
+
+def _without_own_usage(event: "ResponseIncompleteEvent | None") -> "ResponseIncompleteEvent | None":
+    from litellm.types.llms.openai import ResponseAPIUsage
+
+    if event is None:
+        return None
+    no_usage: Final = ResponseAPIUsage(input_tokens=0, output_tokens=0, total_tokens=0)
+    return event.model_copy(update={"response": event.response.model_copy(update={"usage": no_usage})})
+
+
 def _params_sent_to_deployment(attempt: StreamAttempt, deployment_id: object) -> Mapping[str, object]:
     """The request as the deployment received it, merged in the order the attempt applies."""
     return attempt.core.params_sent_to_deployment(attempt.request, deployment_id)
@@ -1652,6 +1670,8 @@ def wrap_responses_stream(  # noqa: C901  # one function per Python wrapper it p
             if self._billing_source is source_iterator:
                 return current
             primary: Final = partial_responses_incomplete_event_on_disconnect(source_iterator)
+            if _carries_continued_partial(self._billing_source):
+                return current or _without_own_usage(primary)
             if current is None or primary is None:
                 return current or primary
             if primary.response.usage is not None:
