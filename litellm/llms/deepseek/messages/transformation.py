@@ -11,13 +11,13 @@ from pydantic import TypeAdapter
 import litellm
 from litellm.litellm_core_utils.core_helpers import drops_unsupported_params
 from litellm.litellm_core_utils.url_utils import join_api_base
-from litellm.llms.anthropic.common_utils import AnthropicError, AnthropicModelInfo
+from litellm.llms.anthropic.common_utils import AnthropicError
 from litellm.llms.anthropic.messages.native.transformation import (
     AnthropicMessagesConfig,
 )
 from litellm.secret_managers.main import get_secret_str
 from litellm.types.router import GenericLiteLLMParams
-from litellm.utils import ModelInfoLookupMiss, lookup_catalog_model_info
+from litellm.utils import is_known_non_reasoning_model
 
 _TOOL_LIST: Final = TypeAdapter(list[object])
 _TOOL_FIELDS: Final = TypeAdapter(dict[object, object])
@@ -66,16 +66,10 @@ def _deepseek_effort_params(params: Mapping[str, object], drop_params: bool) -> 
     return _with_output_config_effort(_without(params, "reasoning_effort"), None, drop_params)
 
 
-def _listed_without_reasoning(model: str, custom_llm_provider: str) -> bool:
-    if AnthropicModelInfo.supports_model_capability(model, "supports_reasoning", custom_llm_provider):
-        return False
-    return not isinstance(lookup_catalog_model_info(model, custom_llm_provider), ModelInfoLookupMiss)
-
-
 def _deepseek_request_params(
     model: str, custom_llm_provider: str, params: Mapping[str, object], drop_params: bool
 ) -> Mapping[str, object] | _InvalidEffort:
-    if _listed_without_reasoning(model, custom_llm_provider):
+    if is_known_non_reasoning_model(model, custom_llm_provider):
         return params
     return _deepseek_effort_params(params, drop_params)
 
@@ -188,7 +182,7 @@ class DeepSeekAnthropicMessagesConfig(AnthropicMessagesConfig):
         max_tokens: int | None,
         custom_llm_provider: str,
     ) -> None:
-        if not _listed_without_reasoning(model, custom_llm_provider):
+        if not is_known_non_reasoning_model(model, custom_llm_provider):
             return None
         return AnthropicMessagesConfig._translate_adaptive_effort_for_non_adaptive_model(  # pyright: ignore[reportUnknownMemberType]  # the base hook takes a bare dict
             model=model,
@@ -203,7 +197,7 @@ class DeepSeekAnthropicMessagesConfig(AnthropicMessagesConfig):
         optional_params: dict[str, object],  # mutable-ok: the base hook edits the request params in place
         custom_llm_provider: str,
     ) -> None:
-        if not _listed_without_reasoning(model, custom_llm_provider):
+        if not is_known_non_reasoning_model(model, custom_llm_provider):
             return None
         return AnthropicMessagesConfig._drop_incompatible_temperature_for_thinking(  # pyright: ignore[reportUnknownMemberType]  # the base hook takes a bare dict
             model=model,
