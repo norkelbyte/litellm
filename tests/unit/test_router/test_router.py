@@ -3498,6 +3498,14 @@ async def test_a_client_leaving_a_responses_fallback_from_a_chat_bridged_primary
         model="gpt-4o-mini", text=fallback_text, count_response_tokens=True
     )
     assert success["completion_tokens"] == cut_leg["completion_tokens"] + fallback_output_tokens
+    fallback_prompt_cost, fallback_completion_cost = litellm.cost_per_token(
+        model="openai/gpt-4o-mini",
+        prompt_tokens=success["prompt_tokens"] - cut_leg["prompt_tokens"],
+        completion_tokens=fallback_output_tokens,
+    )
+    assert success["response_cost"] == pytest.approx(
+        cut_leg["response_cost"] + fallback_prompt_cost + fallback_completion_cost
+    )
     assert success["cost_breakdown"]["additional_costs"]["mid_stream_partial_cost"] == pytest.approx(
         cut_leg["response_cost"]
     )

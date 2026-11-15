@@ -1595,7 +1595,9 @@ def _without_own_usage(event: "ResponseIncompleteEvent | None") -> "ResponseInco
     if event is None:
         return None
     no_usage: Final = ResponseAPIUsage(input_tokens=0, output_tokens=0, total_tokens=0)
-    return event.model_copy(update={"response": event.response.model_copy(update={"usage": no_usage})})
+    unbilled: Final = event.response.model_copy(update={"usage": no_usage})
+    unbilled.hidden_params = {**event.response.hidden_params, "response_cost": 0.0}
+    return event.model_copy(update={"response": unbilled})
 
 
 def _params_sent_to_deployment(attempt: StreamAttempt, deployment_id: object) -> Mapping[str, object]:
