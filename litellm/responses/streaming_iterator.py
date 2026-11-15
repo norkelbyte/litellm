@@ -1147,6 +1147,12 @@ class BaseResponsesAPIStreamingIterator:
         the stream already reached its terminal event and billed itself, or its failure
         log already billed the relayed output.
         """
+        partial: Final = self.unpriced_partial_response_on_disconnect()
+        if partial is not None:
+            stamp_responses_usage_cost(partial.response, self.logging_obj)
+        return partial
+
+    def unpriced_partial_response_on_disconnect(self) -> ResponseIncompleteEvent | None:
         created: Final = self._created_response
         generated: Final = self._generated_content + self._generated_tool_arguments
         if self._replays_stored_stream or created is None or not generated or self._billed_without_disconnect():
@@ -1167,7 +1173,6 @@ class BaseResponsesAPIStreamingIterator:
                 "output": _partial_output_items(self._generated_content),
             }
         )
-        stamp_responses_usage_cost(partial, self.logging_obj)
         return ResponseIncompleteEvent(type=ResponsesAPIStreamEvents.RESPONSE_INCOMPLETE, response=partial)
 
     def _billed_without_disconnect(self) -> bool:
@@ -1724,12 +1729,28 @@ class _BillsPartialStreamOnDisconnect(Protocol):
     def partial_response_on_disconnect(self) -> ResponseIncompleteEvent | None: ...
 
 
+@runtime_checkable
+class _BuildsUnpricedPartialOnDisconnect(Protocol):
+    def unpriced_partial_response_on_disconnect(self) -> ResponseIncompleteEvent | None: ...
+
+
 def partial_responses_incomplete_event_on_disconnect(stream: object) -> ResponseIncompleteEvent | None:
     """Ask the stream behind a proxy or router wrapper for the partial response to bill, if it can build one."""
     if not isinstance(stream, _BillsPartialStreamOnDisconnect):
         return None
+    return _built_disconnect_event(stream.partial_response_on_disconnect)
+
+
+def unpriced_partial_responses_incomplete_event_on_disconnect(stream: object) -> ResponseIncompleteEvent | None:
+    """The same partial response, left unpriced so building it records no cost on the stream's logging object."""
+    if not isinstance(stream, _BuildsUnpricedPartialOnDisconnect):
+        return None
+    return _built_disconnect_event(stream.unpriced_partial_response_on_disconnect)
+
+
+def _built_disconnect_event(build: Callable[[], ResponseIncompleteEvent | None]) -> ResponseIncompleteEvent | None:
     try:
-        partial: Final = stream.partial_response_on_disconnect()
+        partial: Final = build()
     except Exception as e:  # noqa: BLE001  # disconnect billing is best-effort; never break stream teardown
         verbose_logger.debug("Failed to build partial Responses API response for disconnect billing: %s", e)
         return None

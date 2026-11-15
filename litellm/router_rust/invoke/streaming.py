@@ -1596,7 +1596,7 @@ def _without_own_usage(event: "ResponseIncompleteEvent | None") -> "ResponseInco
         return None
     no_usage: Final = ResponseAPIUsage(input_tokens=0, output_tokens=0, total_tokens=0)
     unbilled: Final = event.response.model_copy(update={"usage": no_usage})
-    unbilled.hidden_params = {**event.response.hidden_params, "response_cost": 0.0}
+    unbilled.hidden_params = without(event.response.hidden_params, "response_cost")
     return event.model_copy(update={"response": unbilled})
 
 
@@ -1666,14 +1666,19 @@ def wrap_responses_stream(  # noqa: C901  # one function per Python wrapper it p
             return prepared
 
         def partial_response_on_disconnect(self) -> "ResponseIncompleteEvent | None":
-            from litellm.responses.streaming_iterator import partial_responses_incomplete_event_on_disconnect
+            from litellm.responses.streaming_iterator import (
+                partial_responses_incomplete_event_on_disconnect,
+                unpriced_partial_responses_incomplete_event_on_disconnect,
+            )
 
             current: Final = partial_responses_incomplete_event_on_disconnect(self._billing_source)
             if self._billing_source is source_iterator:
                 return current
-            primary: Final = partial_responses_incomplete_event_on_disconnect(source_iterator)
             if _carries_continued_partial(self._billing_source):
-                return current or _without_own_usage(primary)
+                return current or _without_own_usage(
+                    unpriced_partial_responses_incomplete_event_on_disconnect(source_iterator)
+                )
+            primary: Final = partial_responses_incomplete_event_on_disconnect(source_iterator)
             if current is None or primary is None:
                 return current or primary
             if primary.response.usage is not None:

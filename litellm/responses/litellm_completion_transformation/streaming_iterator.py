@@ -1637,6 +1637,12 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
         Built from the chat completion chunks relayed so far, so the usage is what
         stream_chunk_builder counts for them.
         """
+        partial: Final = self.unpriced_partial_response_on_disconnect()
+        if partial is not None:
+            stamp_responses_usage_cost(partial.response, self.litellm_logging_obj)
+        return partial
+
+    def unpriced_partial_response_on_disconnect(self) -> ResponseIncompleteEvent | None:
         if self.completed_response is not None or not self.collected_chat_completion_chunks:
             return None
         built: Final = stream_chunk_builder(
@@ -1666,7 +1672,6 @@ class LiteLLMCompletionStreamingIterator(ResponsesAPIStreamingIterator):
                 }
             )
         )
-        stamp_responses_usage_cost(partial, self.litellm_logging_obj)
         return ResponseIncompleteEvent(type=ResponsesAPIStreamEvents.RESPONSE_INCOMPLETE, response=partial)
 
     def _emit_terminal_response_event(
