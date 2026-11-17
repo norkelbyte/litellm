@@ -2410,6 +2410,56 @@ def test_streamed_responses_over_anthropic_complete_a_paused_turn_with_its_pendi
     ] == ["completed"]
 
 
+def test_a_streamed_cut_on_a_search_with_no_query_yet_marks_the_reasoning_incomplete(
+    respx_mock: respx.MockRouter,
+) -> None:
+    respx_mock.post(_ANTHROPIC_MESSAGES_URL).mock(
+        return_value=httpx.Response(
+            200,
+            headers={"content-type": "text/event-stream"},
+            content=_anthropic_sse(
+                {
+                    "type": "message_start",
+                    "message": {**ANTHROPIC_DOCS_REFUSAL_MESSAGE, "content": [], "stop_reason": None},
+                },
+                {"type": "content_block_start", "index": 0, "content_block": {"type": "thinking", "thinking": ""}},
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "thinking_delta", "thinking": _THINKING_BEFORE_SEARCHES["thinking"]},
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "signature_delta", "signature": _THINKING_BEFORE_SEARCHES["signature"]},
+                },
+                {"type": "content_block_stop", "index": 0},
+                {"type": "content_block_start", "index": 1, "content_block": {**_PENDING_SEARCH, "input": {}}},
+                {"type": "content_block_delta", "index": 1, "delta": {"type": "input_json_delta", "partial_json": ""}},
+                {
+                    "type": "message_delta",
+                    "delta": {"stop_reason": "max_tokens", "stop_sequence": None},
+                    "usage": {"output_tokens": 5},
+                },
+                {"type": "message_stop"},
+            ),
+        )
+    )
+
+    finished: Final = tuple(
+        litellm.responses(
+            model=_MODEL,
+            input="Chain sister cities.",
+            tools=[{"type": "web_search"}],
+            stream=True,
+            api_key="mock_api_key",
+        )
+    )[-1]
+
+    assert finished.type == "response.incomplete"
+    assert [(item.type, item.status) for item in finished.response.output] == [("reasoning", "incomplete")]
+
+
 async def _codex_follow_up_body(**kwargs: object) -> Mapping[str, object]:
     anthropic: Final = _RecordingRawAnthropicMessages()
     with patch("litellm.proxy.proxy_server.prisma_client", _FakePrismaClient([_SEARCH_TURN, _CALENDAR_TURN])):

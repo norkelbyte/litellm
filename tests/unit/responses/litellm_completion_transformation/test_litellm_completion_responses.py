@@ -4818,6 +4818,7 @@ class TestEnsureOutputItemContentPartAdded:
         iterator._tool_search = tool_search_routing(None)
         iterator._tool_search_executions = MappingProxyType({})
         iterator.tool_call_provider_fields = False
+        iterator._streams_tool_arguments = True
         return iterator
 
     def _make_text_chunk(self):
