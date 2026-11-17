@@ -83,6 +83,11 @@ def _stamp_served_service_tier(response: ModelResponseStream, complete_streaming
         setattr(response, "service_tier", served_tier)  # noqa: B010  # pydantic extra, not a declared field
 
 
+def _served_service_tier_update(upstream_chunk: object) -> Mapping[str, str]:
+    served_tier: Final = getattr(upstream_chunk, "service_tier", None)
+    return MappingProxyType({"service_tier": served_tier} if isinstance(served_tier, str) and served_tier else {})
+
+
 def _apply_provider_fields(response: ModelResponseStream, fields: Mapping[str, object]) -> None:
     for key, value in fields.items():
         setattr(response, key, value)
@@ -1077,7 +1082,9 @@ class CustomStreamWrapper:
                 # Don't raise StopIteration here - some providers (like OpenRouter)
                 # send usage/cost data in chunks after the finish_reason chunk
                 if hasattr(model_response, "usage") and model_response.usage is not None:
-                    return model_response
+                    return model_response.model_copy(
+                        update=_served_service_tier_update(response_obj.get("original_chunk"))
+                    )
                 return
             # flush any remaining holding chunk
             if len(self.holding_chunk) > 0:

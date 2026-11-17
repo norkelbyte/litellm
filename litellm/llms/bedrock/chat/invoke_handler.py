@@ -772,7 +772,11 @@ class AWSEventStreamDecoder:
                 provider_specific_fields=model_response_provider_specific_fields,
             )
 
-            return response
+            match chunk_data:
+                case {"serviceTier": {"type": str() as served_tier}} if served_tier:
+                    return response.model_copy(update={"service_tier": served_tier})
+                case _:
+                    return response
         except Exception as e:
             raise Exception(f"Received streaming error - {e}")
 
