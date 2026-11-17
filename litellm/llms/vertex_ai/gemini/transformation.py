@@ -67,6 +67,7 @@ from ..common_utils import (
     gemini_video_metadata_from_openai,
     get_supports_response_schema,
     get_supports_system_message,
+    schema_budget_errors_as_context_window_errors,
     with_forced_bare_root_unions_on_parameters,
     with_integer_enums_that_fit,
 )
@@ -1249,7 +1250,10 @@ def transform_request_body(
             if tools is not None:
                 built_tools: Final = cast(Tools, tools)  # cast-ok: popped from the untyped optional_params
                 caller_params: Final = cast(Mapping[str, object], optional_params)  # cast-ok: untyped shared signature
-                data["tools"] = _tools_fit_for_caller_tool_config(built_tools, caller_params.get("extra_body"), model)
+                with schema_budget_errors_as_context_window_errors(model, custom_llm_provider):
+                    data["tools"] = _tools_fit_for_caller_tool_config(
+                        built_tools, caller_params.get("extra_body"), model
+                    )
             if tool_choice is not None:
                 data["toolConfig"] = tool_choice
             if include_server_side_tool_invocations:

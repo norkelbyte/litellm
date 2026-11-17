@@ -1118,9 +1118,19 @@ def _forces(function_calling_config: JsonValue, name: JsonValue) -> bool:
             return False
 
 
-def _vertex_parameters(json_schema: Mapping[str, JsonValue], send_integer_enums: bool) -> Mapping[str, JsonValue]:
-    stripped: Final = remove_strict_from_schema(remove_additional_properties(deepcopy(dict(json_schema))))
-    return _JSON_SCHEMA.validate_python(build_vertex_schema(stripped, send_integer_enums=send_integer_enums))
+def _vertex_parameters(
+    json_schema: Mapping[str, JsonValue], name: JsonValue, send_integer_enums: bool
+) -> Mapping[str, JsonValue]:
+    stripped: Final[dict[str, object]] = {
+        **remove_strict_from_schema(remove_additional_properties(deepcopy(dict(json_schema))))
+    }
+    parameters, _ = build_vertex_schema_within_budget(
+        stripped,
+        max_inlined_bytes=DEFS_MAX_INLINED_BYTES,
+        schema_name=f"tool '{name}'",
+        send_integer_enums=send_integer_enums,
+    )
+    return _JSON_SCHEMA.validate_python(parameters)
 
 
 def _declaration_for(declaration: JsonValue, function_calling_config: JsonValue, send_integer_enums: bool) -> JsonValue:
@@ -1132,7 +1142,7 @@ def _declaration_for(declaration: JsonValue, function_calling_config: JsonValue,
     if not _forces(function_calling_config, declaration.get("name")):
         return declaration
     kept: Final = {key: value for key, value in declaration.items() if key != "parametersJsonSchema"}
-    return {**kept, "parameters": dict(_vertex_parameters(json_schema, send_integer_enums))}
+    return {**kept, "parameters": dict(_vertex_parameters(json_schema, declaration.get("name"), send_integer_enums))}
 
 
 def _tool_for(tool: JsonValue, function_calling_config: JsonValue, send_integer_enums: bool) -> JsonValue:

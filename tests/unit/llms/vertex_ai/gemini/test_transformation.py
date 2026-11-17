@@ -10,6 +10,7 @@ import pytest
 
 import litellm
 from litellm._logging import verbose_logger
+from litellm.litellm_core_utils.prompt_templates.common_utils import DEFS_MAX_INLINED_BYTES
 from litellm.llms.custom_httpx.http_handler import AsyncHTTPHandler
 from litellm.llms.vertex_ai.gemini import transformation
 from litellm.llms.vertex_ai.gemini.vertex_and_google_ai_studio_gemini import (
@@ -619,3 +620,43 @@ def test_a_tool_call_forced_through_extra_body_keeps_a_bare_root_union_tool_as_t
     assert "parameters" in forced_lookup and "parametersJsonSchema" in free_lookup
     assert lookup == (forced_lookup if forced else free_lookup)
     assert weather == forced_weather
+
+
+@pytest.mark.parametrize("custom_llm_provider", ["gemini", "vertex_ai"])
+def test_a_forced_bare_root_union_tool_whose_defs_inline_past_the_budget_is_a_context_window_error_naming_it(
+    custom_llm_provider: str,
+) -> None:
+    shared_def_tool: Final = {
+        "type": "function",
+        "function": {
+            "name": "shared_union",
+            "parameters": {
+                "anyOf": [
+                    {"type": "object", "properties": {f"field{index}": {"$ref": "#/$defs/Shared"} for index in range(3)}},
+                    {"type": "object", "properties": {"b": {"type": "string"}}},
+                ],
+                "$defs": {"Shared": {"type": "string", "description": "x" * (DEFS_MAX_INLINED_BYTES // 2)}},
+            },
+        },
+    }
+    optional_params: Final = VertexGeminiConfig().map_openai_params(
+        non_default_params={"tools": [shared_def_tool], "tool_choice": "auto"},
+        optional_params={},
+        model="gemini-2.5-flash",
+        drop_params=False,
+    )
+
+    with pytest.raises(litellm.ContextWindowExceededError, match="tool 'shared_union'") as raised:
+        transformation.transform_request_body(
+            messages=[{"role": "user", "content": "Find the record named Atlas"}],
+            model="gemini-2.5-flash",
+            optional_params={
+                **optional_params,
+                "extra_body": {"toolConfig": {"functionCallingConfig": {"mode": "ANY"}}},
+            },
+            custom_llm_provider=custom_llm_provider,
+            litellm_params={},
+            cached_content=None,
+        )
+
+    assert (raised.value.status_code, raised.value.llm_provider) == (400, custom_llm_provider)
