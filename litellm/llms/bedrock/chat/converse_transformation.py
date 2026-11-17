@@ -22,7 +22,6 @@ from litellm.constants import (
 )
 from litellm.exceptions import BadRequestError
 from litellm.litellm_core_utils.core_helpers import (
-    as_str_mapping,
     drops_unsupported_params,
     filter_exceptions_from_params,
     filter_internal_params,
